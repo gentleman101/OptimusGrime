@@ -1,14 +1,34 @@
 {
   "project": "optimusGrime",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "nodes": [
-    {"id": "root", "label": "Project Root", "type": "directory"},
-    {"id": "docs", "label": "Documentation", "type": "directory"},
-    {"id": "scripts", "label": "System Scripts", "type": "directory"},
-    {"id": "src", "label": "Source Code", "type": "directory"},
-    {"id": "best_practices", "label": "Standards", "file": "docs/best_practices.md"}
+    {"id": "root",          "label": "Project Root",           "type": "directory"},
+    {"id": "docs",          "label": "Documentation",          "type": "directory"},
+    {"id": "scripts",       "label": "OS-Level Scripts",       "type": "directory"},
+    {"id": "src",           "label": "Application Source",     "type": "directory"},
+    {"id": "best_practices","label": "Architecture Standards", "file": "docs/best_practices.md"},
+    {"id": "health_check",  "label": "System Health Monitor",  "file": "scripts/health_check.py",
+     "outputs": ["cpu", "memory_pressure", "disk_io", "disk_space", "processes"],
+     "formats": ["pretty", "json", "warnings-only"]},
+    {"id": "get_tabs",      "label": "Browser Tab Lister",     "file": "scripts/get_tabs.scpt",
+     "browsers": ["Chrome", "Safari"],
+     "outputs": ["url", "title", "inactivity_score"]},
+    {"id": "scan_grime",    "label": "Junk File Scanner",      "file": "scripts/scan_grime.py",
+     "categories": ["app_caches", "xcode_derived", "system_tmp", "trash", "broken_agents"],
+     "formats": ["pretty", "json"]},
+    {"id": "dashboard",     "label": "Browser Dashboard",      "file": "src/dashboard.py",
+     "port": 7777,
+     "routes": ["/", "/api/stats", "/api/tabs", "/api/grime", "/api/snapshot", "/api/kill", "/api/close-tabs", "/api/clean"],
+     "features": ["sparklines", "gauges", "process_bars", "tab_scoring", "smart_cleanup", "ask_claude"]}
   ],
   "edges": [
-    {"source": "best_practices", "target": "root", "relation": "governs"}
+    {"source": "best_practices", "target": "root",        "relation": "governs"},
+    {"source": "health_check",   "target": "scripts",     "relation": "belongs_to"},
+    {"source": "get_tabs",       "target": "scripts",     "relation": "belongs_to"},
+    {"source": "scan_grime",     "target": "scripts",     "relation": "belongs_to"},
+    {"source": "dashboard",      "target": "src",         "relation": "belongs_to"},
+    {"source": "dashboard",      "target": "health_check","relation": "imports"},
+    {"source": "dashboard",      "target": "scan_grime",  "relation": "imports"},
+    {"source": "dashboard",      "target": "get_tabs",    "relation": "calls"}
   ]
 }
