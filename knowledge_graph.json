@@ -1,0 +1,14 @@
+{
+  "project": "optimusGrime",
+  "version": "0.1.0",
+  "nodes": [
+    {"id": "root", "label": "Project Root", "type": "directory"},
+    {"id": "docs", "label": "Documentation", "type": "directory"},
+    {"id": "scripts", "label": "System Scripts", "type": "directory"},
+    {"id": "src", "label": "Source Code", "type": "directory"},
+    {"id": "best_practices", "label": "Standards", "file": "docs/best_practices.md"}
+  ],
+  "edges": [
+    {"source": "best_practices", "target": "root", "relation": "governs"}
+  ]
+}
