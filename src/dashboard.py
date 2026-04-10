@@ -436,10 +436,18 @@ HTML = r"""<!DOCTYPE html>
     position: relative; overflow: hidden;
   }
   .card:hover { transform: translateY(-2px); box-shadow: 0 8px 32px rgba(0,0,0,.4); }
+  .card::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0;
+    height: 3px; border-radius: var(--radius) var(--radius) 0 0;
+    background: var(--card-accent, #3b82f6);
+    opacity: 0.7;
+  }
+  .card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
   .card-label { font-size: 11px; color: var(--muted); text-transform: uppercase;
-                letter-spacing: .8px; margin-bottom: 8px; }
-  .card-value { font-family: "SF Mono", "Fira Code", monospace; font-size: 28px;
-                font-weight: 600; line-height: 1; margin-bottom: 4px; }
+                letter-spacing: .8px; }
+  .card-icon  { font-size: 16px; opacity: .7; }
+  .card-value { font-family: "SF Mono", "Fira Code", monospace; font-size: 32px;
+                font-weight: 700; line-height: 1; margin-bottom: 2px; }
   .card-sub   { font-size: 11px; color: var(--muted); margin-top: 4px; }
 
   /* ── Top bar grid ── */
@@ -482,21 +490,26 @@ HTML = r"""<!DOCTYPE html>
 
   /* ── Section headers ── */
   .section-title {
-    font-size: 12px; font-weight: 600; color: var(--muted);
-    text-transform: uppercase; letter-spacing: .8px;
-    margin-bottom: 14px; padding-bottom: 8px;
-    border-bottom: 1px solid var(--border);
+    font-size: 12px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 1px;
+    margin-bottom: 16px; padding: 8px 12px;
+    border-radius: 6px; display: flex; align-items: center; gap: 8px;
   }
+  .section-title.red   { color: #ff6b6b; background: rgba(239,68,68,.08); border-left: 3px solid #ef4444; }
+  .section-title.blue  { color: #60a5fa; background: rgba(59,130,246,.08); border-left: 3px solid #3b82f6; }
+  .section-title.amber { color: #fbbf24; background: rgba(245,158,11,.08); border-left: 3px solid #f59e0b; }
 
   /* ── Process rows ── */
   .proc-row {
-    padding: 8px 0; border-bottom: 1px solid rgba(42,42,42,.5);
-    position: relative;
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 0; border-bottom: 1px solid rgba(42,42,42,.5);
   }
   .proc-row:last-child { border-bottom: none; }
-  .proc-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
-  .proc-name   { font-size: 12px; font-weight: 500; font-family: "SF Mono","Fira Code",monospace; }
-  .proc-stats  { font-size: 11px; color: var(--muted); }
+  .proc-info   { flex: 1; min-width: 0; }
+  .proc-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+  .proc-name   { font-size: 12px; font-weight: 500; font-family: "SF Mono","Fira Code",monospace;
+                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 160px; }
+  .proc-stats  { font-size: 11px; color: var(--muted); white-space: nowrap; }
   .proc-bars   { display: flex; flex-direction: column; gap: 3px; }
   .bar-track   { height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
   .bar-fill    { height: 100%; border-radius: 2px; transition: width .4s ease; }
@@ -504,13 +517,16 @@ HTML = r"""<!DOCTYPE html>
   .bar-mem     { background: rgba(139,92,246,.7); }
 
   .kill-btn {
-    display: none; position: absolute; right: 0; top: 50%; transform: translateY(-50%);
-    background: rgba(239,68,68,.1); border: 1px solid rgba(239,68,68,.3);
-    color: var(--red); font-size: 11px; padding: 3px 8px; border-radius: 6px;
-    cursor: pointer; transition: background .15s, box-shadow .15s;
+    flex-shrink: 0;
+    background: rgba(239,68,68,.12); border: 1px solid rgba(239,68,68,.4);
+    color: #ff6b6b; font-size: 12px; font-weight: 600; padding: 6px 16px;
+    border-radius: 8px; cursor: pointer; transition: background .15s, box-shadow .15s, transform .1s;
+    letter-spacing: .3px; white-space: nowrap;
   }
-  .kill-btn:hover { background: rgba(239,68,68,.2); box-shadow: 0 0 12px rgba(239,68,68,.3); }
-  .proc-row:hover .kill-btn { display: block; }
+  .kill-btn:hover {
+    background: rgba(239,68,68,.25); box-shadow: 0 0 14px rgba(239,68,68,.4);
+    transform: scale(1.05);
+  }
 
   /* ── Tab rows ── */
   .tab-summary { display: flex; gap: 8px; margin-bottom: 12px; }
@@ -531,12 +547,16 @@ HTML = r"""<!DOCTYPE html>
     background: rgba(245,158,11,.15); color: var(--amber); margin-top: 2px;
   }
   .close-btn {
-    display: none; position: absolute; right: 0; top: 50%; transform: translateY(-50%);
-    background: rgba(239,68,68,.1); border: 1px solid rgba(239,68,68,.3);
-    color: var(--red); font-size: 11px; padding: 3px 8px; border-radius: 6px; cursor: pointer;
-    transition: background .15s;
+    display: block; position: absolute; right: 0; top: 50%; transform: translateY(-50%);
+    background: rgba(239,68,68,.12); border: 1px solid rgba(239,68,68,.4);
+    color: #ff6b6b; font-size: 12px; font-weight: 600; padding: 5px 14px;
+    border-radius: 8px; cursor: pointer; transition: background .15s, box-shadow .15s, transform .1s;
+    letter-spacing: .3px;
   }
-  .tab-row:hover .close-btn { display: block; }
+  .close-btn:hover {
+    background: rgba(239,68,68,.25); box-shadow: 0 0 14px rgba(239,68,68,.4);
+    transform: translateY(-50%) scale(1.05);
+  }
 
   .action-bar { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
   .btn {
@@ -638,8 +658,11 @@ HTML = r"""<!DOCTYPE html>
 <!-- Top 4 stat cards -->
 <div class="top-grid">
   <!-- CPU -->
-  <div class="card" id="card-cpu">
-    <div class="card-label">CPU</div>
+  <div class="card" id="card-cpu" style="--card-accent:#3b82f6">
+    <div class="card-header">
+      <span class="card-label">CPU</span>
+      <span class="card-icon">⚡</span>
+    </div>
     <div class="card-value" id="cpu-val">—</div>
     <div class="card-sub" id="cpu-sub">user · sys · idle</div>
     <svg class="sparkline sparkline-svg" id="spark-cpu" viewBox="0 0 200 50" preserveAspectRatio="none">
@@ -653,8 +676,11 @@ HTML = r"""<!DOCTYPE html>
   </div>
 
   <!-- Memory -->
-  <div class="card" id="card-mem">
-    <div class="card-label">Memory</div>
+  <div class="card" id="card-mem" style="--card-accent:#a855f7">
+    <div class="card-header">
+      <span class="card-label">Memory</span>
+      <span class="card-icon">🧠</span>
+    </div>
     <div class="card-value" id="mem-val">—</div>
     <div class="card-sub" id="mem-sub">used · free</div>
     <span class="pressure unknown" id="mem-pressure">—</span>
@@ -669,8 +695,11 @@ HTML = r"""<!DOCTYPE html>
   </div>
 
   <!-- Disk I/O -->
-  <div class="card" id="card-io">
-    <div class="card-label">Disk I/O</div>
+  <div class="card" id="card-io" style="--card-accent:#22c55e">
+    <div class="card-header">
+      <span class="card-label">Disk I/O</span>
+      <span class="card-icon">💾</span>
+    </div>
     <div class="card-value" id="io-val">—</div>
     <div class="card-sub">MB/s activity</div>
     <svg class="sparkline sparkline-svg" id="spark-io" viewBox="0 0 200 50" preserveAspectRatio="none">
@@ -684,8 +713,11 @@ HTML = r"""<!DOCTYPE html>
   </div>
 
   <!-- Disk Space -->
-  <div class="card" id="card-disk">
-    <div class="card-label">Disk Space</div>
+  <div class="card" id="card-disk" style="--card-accent:#f59e0b">
+    <div class="card-header">
+      <span class="card-label">Disk Space</span>
+      <span class="card-icon">🗄</span>
+    </div>
     <div class="card-value" id="disk-val">—</div>
     <div class="card-sub" id="disk-sub">used</div>
     <div class="gauge-wrap">
@@ -707,7 +739,7 @@ HTML = r"""<!DOCTYPE html>
 
   <!-- Section 1: CPU Hogs -->
   <div class="card" id="section-hogs">
-    <div class="section-title">Background CPU Hogs</div>
+    <div class="section-title red">⚡ Background CPU Hogs</div>
     <div id="hogs-content">
       <div class="vibe-tile" onclick="retrySection('hogs')">
         <div class="vibe-emoji">🤙</div>
@@ -718,7 +750,7 @@ HTML = r"""<!DOCTYPE html>
 
   <!-- Section 2: Browser Tabs -->
   <div class="card" id="section-tabs">
-    <div class="section-title">Browser Tabs</div>
+    <div class="section-title blue">🌐 Browser Tabs</div>
     <div id="tabs-content">
       <div class="vibe-tile" onclick="retrySection('tabs')">
         <div class="vibe-emoji">🤙</div>
@@ -729,7 +761,7 @@ HTML = r"""<!DOCTYPE html>
 
   <!-- Section 3: Smart Cleanup -->
   <div class="card" id="section-grime">
-    <div class="section-title">Smart Cleanup</div>
+    <div class="section-title amber">🧹 Smart Cleanup</div>
     <div id="grime-content">
       <div class="vibe-tile" onclick="retrySection('grime')">
         <div class="vibe-emoji">🤙</div>
@@ -892,13 +924,15 @@ function renderHogs(hogs) {
   const maxCpu = Math.max(...hogs.map(p => p.cpu), 1);
   el.innerHTML = hogs.map(p => `
     <div class="proc-row" data-pid="${p.pid}">
-      <div class="proc-header">
-        <span class="proc-name">${esc(p.name)}</span>
-        <span class="proc-stats">${p.cpu.toFixed(1)}% · ${p.rss_mb}M</span>
-      </div>
-      <div class="proc-bars">
-        <div class="bar-track"><div class="bar-fill bar-cpu" style="width:${(p.cpu/maxCpu*100).toFixed(1)}%"></div></div>
-        <div class="bar-track"><div class="bar-fill bar-mem" style="width:${Math.min(p.mem,100).toFixed(1)}%"></div></div>
+      <div class="proc-info">
+        <div class="proc-header">
+          <span class="proc-name">${esc(p.name)}</span>
+          <span class="proc-stats">${p.cpu.toFixed(1)}% · ${p.rss_mb}M</span>
+        </div>
+        <div class="proc-bars">
+          <div class="bar-track"><div class="bar-fill bar-cpu" style="width:${(p.cpu/maxCpu*100).toFixed(1)}%"></div></div>
+          <div class="bar-track"><div class="bar-fill bar-mem" style="width:${Math.min(p.mem,100).toFixed(1)}%"></div></div>
+        </div>
       </div>
       <button class="kill-btn" onclick="confirmKill(${p.pid},'${esc(p.name)}')">Kill</button>
     </div>`).join('');

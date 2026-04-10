@@ -27,7 +27,7 @@ CATEGORIES = [
         "reason":   "Apps regenerate these automatically",
         "path":     HOME / "Library" / "Caches",
         "mode":     "dir_contents",   # scan subdirs, exclude com.apple.*
-        "age_days": 30,
+        "age_days": 0,   # show all non-Apple caches; age check only applied at deletion
         "safe":     True,
     },
     {
@@ -169,7 +169,17 @@ def scan_dir_total(cat: dict) -> dict:
     try:
         entries = [e for e in base.iterdir() if not e.name.startswith(".")]
     except PermissionError:
-        return {"bytes": 0, "count": 0, "items": [], "accessible": False}
+        # Fall back to `du -sh` for directories we can't iterate (e.g. ~/.Trash)
+        try:
+            r = subprocess.run(
+                ["du", "-sk", str(base)],
+                capture_output=True, text=True, timeout=10
+            )
+            line = r.stdout.strip().split("\t")[0]
+            kb = int(line) if line.isdigit() else 0
+            return {"bytes": kb * 1024, "count": -1, "items": [], "accessible": True}
+        except Exception:
+            return {"bytes": 0, "count": 0, "items": [], "accessible": False}
 
     total = 0
     for e in entries:
