@@ -1,7 +1,7 @@
 ---
 name: dashboard
 description: Launch the OptimusGrime live browser dashboard at http://localhost:7777. Shows real-time CPU/memory/disk sparklines, background process hogs with kill buttons, browser tab intelligence, and smart cleanup controls.
-argument-hint: "[--no-open]"
+argument-hint: "[--no-open] [--remote]"
 allowed-tools: Bash
 disable-model-invocation: true
 ---
@@ -22,3 +22,5 @@ Tell the user the dashboard is running at http://localhost:7777 and describe wha
 - **Ask Claude button** (bottom-right): copies a full system snapshot prompt to clipboard — paste it here for AI analysis
 
 Press Ctrl-C in the terminal to stop the server.
+
+Use `--remote` to expose the dashboard on your LAN — it will print a `http://<lan-ip>:7777` URL that any device on the same network can open.

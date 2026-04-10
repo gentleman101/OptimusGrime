@@ -1658,12 +1658,28 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     no_open = "--no-open" in sys.argv
-    server = HTTPServer(("127.0.0.1", PORT), Handler)
-    url = f"http://localhost:{PORT}"
-    print(f"OptimusGrime dashboard → {url}")
+    remote   = "--remote"  in sys.argv
+
+    host = "0.0.0.0" if remote else "127.0.0.1"
+    server = HTTPServer((host, PORT), Handler)
+
+    local_url = f"http://localhost:{PORT}"
+    print(f"OptimusGrime dashboard → {local_url}")
+    if remote:
+        import socket
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            lan_ip = s.getsockname()[0]
+            s.close()
+        except Exception:
+            lan_ip = "<your-machine-ip>"
+        print(f"Remote access         → http://{lan_ip}:{PORT}")
+        print("  Share this URL with any device on the same network.")
+        print("  Warning: no auth — use on a trusted network only.")
     print("Press Ctrl-C to stop.")
     if not no_open:
-        subprocess.Popen(["open", url])
+        subprocess.Popen(["open", local_url])
     try:
         server.serve_forever()
     except KeyboardInterrupt:
