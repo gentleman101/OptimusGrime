@@ -532,6 +532,7 @@ HTML = r"""<!DOCTYPE html>
   }
   .logo { font-size: 18px; font-weight: 700; letter-spacing: -0.5px; }
   .logo span { color: var(--blue); }
+  .tagline { font-size: 11px; color: var(--muted); letter-spacing: .4px; margin-top: 2px; }
   .live-dot {
     display: inline-block; width: 8px; height: 8px;
     background: var(--green); border-radius: 50%; margin-right: 6px;
@@ -908,7 +909,10 @@ HTML = r"""<!DOCTYPE html>
 
 <!-- Header -->
 <div class="header">
-  <div class="logo">Optimus<span>Grime</span></div>
+  <div>
+    <div class="logo">Optimus<span>Grime</span></div>
+    <div class="tagline">Transform your grime</div>
+  </div>
   <div class="status-bar">
     <span class="live-dot"></span>
     <span id="status-text">Connecting…</span>
