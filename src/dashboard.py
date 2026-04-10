@@ -306,6 +306,130 @@ def api_snapshot():
     return {"prompt": build_snapshot_prompt(stats, tabs, grime)}
 
 
+def build_ai_summary(stats, tabs, grime):
+    """Rule-based intelligence summary from live system telemetry."""
+    insights = []
+    tips = []
+
+    cpu   = stats.get("cpu") or {}
+    mem   = stats.get("memory") or {}
+    disk  = stats.get("disk_space") or {}
+    hogs  = stats.get("hogs") or []
+
+    cpu_used  = cpu.get("used", 0)
+    pressure  = mem.get("pressure", "low").lower()
+    mem_used  = mem.get("used_gb", 0)
+    mem_total = mem.get("total_gb", 16) or 16
+    disk_pct  = disk.get("used_pct", 0)
+
+    # CPU insight
+    if cpu_used > 80:
+        insights.append(f"CPU is under heavy load at {cpu_used:.0f}% — responsiveness may be impacted")
+    elif cpu_used > 50:
+        insights.append(f"CPU at moderate load ({cpu_used:.0f}%) — normal for active workloads")
+    else:
+        insights.append(f"CPU is healthy at {cpu_used:.0f}% — no performance concerns")
+
+    # Memory insight
+    if pressure == "high":
+        insights.append(f"Memory pressure is HIGH — system is compressing or swapping, degrading speed")
+        tips.append("Close unused apps or browser tabs to relieve memory pressure")
+    elif pressure == "medium":
+        insights.append(f"Memory at {mem_used:.1f}G of {mem_total:.0f}G — moderate pressure, watch for spikes")
+    else:
+        insights.append(f"Memory healthy — {mem_used:.1f}G of {mem_total:.0f}G in use, pressure low")
+
+    # Hog insight
+    if hogs:
+        top = hogs[0]
+        insights.append(
+            f"{top['name']} is consuming {top['cpu']:.0f}% CPU in the background (PID {top['pid']})"
+        )
+        tips.append(f"Kill {top['name']} to reclaim CPU — it has no visible window")
+        if len(hogs) > 1:
+            others = ", ".join(h["name"] for h in hogs[1:])
+            tips.append(f"Also watch: {others} — {len(hogs)-1} more background hog(s) detected")
+
+    # Disk space insight
+    if disk_pct > 85:
+        insights.append(f"Disk at {disk_pct}% capacity — critically low, macOS needs 10% free to function well")
+        tips.append("Run Smart Cleanup immediately to free disk space")
+    elif disk_pct > 70:
+        insights.append(f"Disk at {disk_pct}% — start planning cleanup before it impacts performance")
+
+    # Grime insight
+    if grime:
+        total_grime = sum(g.get("bytes", 0) for g in grime)
+        big_cats = [g for g in grime if g.get("bytes", 0) > 100 * 1024 * 1024]
+        if total_grime > 500 * 1024 * 1024:
+            insights.append(
+                f"{sg.human(total_grime)} in reclaimable junk — "
+                f"largest: {big_cats[0]['label']} ({big_cats[0]['size']})" if big_cats else
+                f"{sg.human(total_grime)} in reclaimable junk files detected"
+            )
+            tips.append(f"Clean {big_cats[0]['label']} to recover {big_cats[0]['size']}" if big_cats else
+                        "Run Smart Cleanup to free disk space")
+
+    # Tab insight
+    if isinstance(tabs, list) and tabs:
+        total_tabs = len(tabs)
+        suggested  = sum(1 for t in tabs if t.get("suggest_close"))
+        if total_tabs > 15:
+            insights.append(f"{total_tabs} browser tabs open — each tab holds memory even when backgrounded")
+        if suggested > 3:
+            tips.append(f"Close {suggested} inactive tabs — estimated ~{suggested * 80}MB freed")
+
+    # Thermal
+    if stats.get("thermal_throttling"):
+        insights.insert(0, "Thermal throttling active — CPU is running hot and slowing itself down")
+        tips.insert(0, "Check for blocked vents or heavy sustained workloads causing heat buildup")
+
+    # Health score
+    score = 100
+    if cpu_used > 80:    score -= 25
+    elif cpu_used > 50:  score -= 8
+    if pressure == "high":   score -= 30
+    elif pressure == "medium": score -= 12
+    score -= min(len(hogs) * 10, 20)
+    if disk_pct > 85:    score -= 20
+    elif disk_pct > 70:  score -= 8
+    if stats.get("thermal_throttling"): score -= 15
+    score = max(0, min(100, score))
+
+    if score >= 85:   status = "System running smoothly"
+    elif score >= 65: status = "Minor inefficiencies detected"
+    elif score >= 40: status = "Performance degraded"
+    else:             status = "Needs immediate attention"
+
+    return {
+        "score": score,
+        "status": status,
+        "insights": insights[:5],
+        "tips": tips[:4],
+        "ts": datetime.now().strftime("%H:%M:%S"),
+    }
+
+
+_summary_cache = {"data": None, "ts": 0}
+
+
+def api_summary():
+    now = time.time()
+    if now - _summary_cache["ts"] < 10:
+        return _summary_cache["data"]
+    try:
+        stats = api_stats()
+        tabs  = api_tabs()
+        grime = api_grime()
+        if isinstance(tabs, dict):  tabs = []
+        if isinstance(grime, dict): grime = []
+        data = build_ai_summary(stats, tabs, grime)
+        _summary_cache.update({"data": data, "ts": now})
+        return data
+    except Exception as e:
+        return {"error": str(e)}
+
+
 def api_kill(pid: int):
     try:
         os.kill(pid, 15)  # SIGTERM
@@ -430,25 +554,52 @@ HTML = r"""<!DOCTYPE html>
 
   /* ── Cards ── */
   .card {
-    background: rgba(22,22,22,.9); backdrop-filter: blur(12px);
-    border: 1px solid var(--border); border-radius: var(--radius);
-    padding: 16px 20px; transition: transform .2s, box-shadow .2s;
+    background: linear-gradient(160deg, #1c1c1c 0%, #131313 100%);
+    border: 1px solid rgba(255,255,255,.06);
+    border-radius: var(--radius);
+    padding: 20px 22px;
     position: relative; overflow: hidden;
+    box-shadow:
+      0 1px 0 0 rgba(255,255,255,.05) inset,
+      0 0 0 1px rgba(0,0,0,.4),
+      0 4px 8px -2px rgba(0,0,0,.6),
+      0 12px 28px -6px rgba(0,0,0,.5),
+      0 28px 60px -12px rgba(0,0,0,.35);
+    transition: transform .25s cubic-bezier(.34,1.4,.64,1), box-shadow .25s ease;
   }
-  .card:hover { transform: translateY(-2px); box-shadow: 0 8px 32px rgba(0,0,0,.4); }
+  .card:hover {
+    transform: translateY(-5px);
+    box-shadow:
+      0 1px 0 0 rgba(255,255,255,.07) inset,
+      0 0 0 1px rgba(0,0,0,.4),
+      0 8px 16px -4px rgba(0,0,0,.7),
+      0 24px 48px -8px rgba(0,0,0,.6),
+      0 48px 96px -16px rgba(0,0,0,.4),
+      0 0 40px -10px var(--card-accent, #3b82f6);
+  }
   .card::before {
     content: ''; position: absolute; top: 0; left: 0; right: 0;
-    height: 3px; border-radius: var(--radius) var(--radius) 0 0;
+    height: 2px; border-radius: var(--radius) var(--radius) 0 0;
     background: var(--card-accent, #3b82f6);
-    opacity: 0.7;
+    box-shadow: 0 0 18px 2px var(--card-accent, #3b82f6);
+    opacity: .9;
   }
-  .card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
-  .card-label { font-size: 11px; color: var(--muted); text-transform: uppercase;
-                letter-spacing: .8px; }
-  .card-icon  { font-size: 16px; opacity: .7; }
-  .card-value { font-family: "SF Mono", "Fira Code", monospace; font-size: 32px;
-                font-weight: 700; line-height: 1; margin-bottom: 2px; }
-  .card-sub   { font-size: 11px; color: var(--muted); margin-top: 4px; }
+  /* Subtle inner top highlight */
+  .card::after {
+    content: ''; position: absolute; top: 2px; left: 12px; right: 12px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,.07), transparent);
+    border-radius: 50%;
+    pointer-events: none;
+  }
+  .card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+  .card-label { font-size: 10px; color: var(--muted); text-transform: uppercase;
+                letter-spacing: 1.2px; font-weight: 600; }
+  .card-icon  { font-size: 15px; opacity: .5; }
+  .card-value { font-family: "SF Mono", "Fira Code", monospace; font-size: 34px;
+                font-weight: 700; line-height: 1; margin-bottom: 2px;
+                text-shadow: 0 0 30px currentColor; }
+  .card-sub   { font-size: 11px; color: var(--muted); margin-top: 5px; }
 
   /* ── Top bar grid ── */
   .top-grid {
@@ -482,11 +633,126 @@ HTML = r"""<!DOCTYPE html>
     display: grid;
     grid-template-columns: repeat(3, 1fr);
     gap: 16px;
+    margin-bottom: 16px;
   }
   @media (max-width: 900px) {
     .top-grid    { grid-template-columns: repeat(2, 1fr); }
     .bottom-grid { grid-template-columns: 1fr; }
   }
+
+  /* ── AI Summary card ── */
+  .ai-card {
+    --card-accent: #818cf8;
+    background: linear-gradient(160deg, #161620 0%, #0f0f18 100%);
+    border: 1px solid rgba(129,140,248,.12);
+    border-radius: var(--radius);
+    padding: 24px 28px;
+    position: relative; overflow: hidden;
+    box-shadow:
+      0 1px 0 0 rgba(255,255,255,.04) inset,
+      0 0 0 1px rgba(0,0,0,.4),
+      0 4px 8px -2px rgba(0,0,0,.6),
+      0 12px 28px -6px rgba(0,0,0,.5),
+      0 28px 60px -12px rgba(0,0,0,.35);
+    transition: transform .25s cubic-bezier(.34,1.4,.64,1), box-shadow .25s ease;
+    margin-bottom: 80px;
+  }
+  .ai-card:hover {
+    transform: translateY(-4px);
+    box-shadow:
+      0 1px 0 0 rgba(255,255,255,.06) inset,
+      0 0 0 1px rgba(0,0,0,.4),
+      0 8px 20px -4px rgba(0,0,0,.7),
+      0 24px 50px -8px rgba(0,0,0,.6),
+      0 0 50px -10px rgba(129,140,248,.2);
+  }
+  .ai-card::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0;
+    height: 2px; border-radius: var(--radius) var(--radius) 0 0;
+    background: linear-gradient(90deg, #6366f1, #a78bfa, #818cf8);
+    box-shadow: 0 0 20px 2px rgba(129,140,248,.5);
+    opacity: .9;
+  }
+  .ai-card::after {
+    content: ''; position: absolute; top: 2px; left: 12px; right: 12px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,.06), transparent);
+    border-radius: 50%;
+    pointer-events: none;
+  }
+  /* Ambient orb behind the score */
+  .ai-card .ai-orb {
+    position: absolute; right: -40px; top: -40px;
+    width: 200px; height: 200px; border-radius: 50%;
+    background: radial-gradient(circle, rgba(99,102,241,.08) 0%, transparent 70%);
+    pointer-events: none;
+  }
+
+  .ai-header {
+    display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;
+  }
+  .ai-title {
+    font-size: 11px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 1.2px; color: #a5b4fc;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .ai-title-icon { font-size: 14px; }
+  .ai-refresh {
+    font-size: 10px; color: var(--muted); cursor: pointer; padding: 4px 10px;
+    border: 1px solid var(--border); border-radius: 6px; background: none;
+    transition: border-color .15s, color .15s;
+  }
+  .ai-refresh:hover { border-color: #818cf8; color: #a5b4fc; }
+
+  .ai-body { display: grid; grid-template-columns: 160px 1fr 1fr; gap: 28px; align-items: start; }
+  @media (max-width: 900px) { .ai-body { grid-template-columns: 1fr; } }
+
+  /* Score ring */
+  .score-wrap { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+  .score-svg  { width: 120px; height: 120px; }
+  .score-status {
+    font-size: 11px; color: var(--muted); text-align: center; max-width: 120px; line-height: 1.4;
+  }
+
+  /* Insights */
+  .ai-col-label {
+    font-size: 10px; color: var(--muted); text-transform: uppercase;
+    letter-spacing: 1px; font-weight: 600; margin-bottom: 10px;
+  }
+  .insight-list { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+  .insight-item {
+    font-size: 12px; color: #c7d2fe; line-height: 1.5;
+    padding-left: 14px; position: relative;
+  }
+  .insight-item::before {
+    content: ''; position: absolute; left: 0; top: 7px;
+    width: 5px; height: 5px; border-radius: 50%;
+    background: #818cf8; opacity: .7;
+  }
+
+  /* Tips */
+  .tip-list { list-style: none; display: flex; flex-direction: column; gap: 8px; counter-reset: tip; }
+  .tip-item {
+    font-size: 12px; color: #d1fae5; line-height: 1.5;
+    padding-left: 22px; position: relative;
+    counter-increment: tip;
+  }
+  .tip-item::before {
+    content: counter(tip);
+    position: absolute; left: 0; top: 1px;
+    width: 16px; height: 16px; border-radius: 50%;
+    background: rgba(52,211,153,.15); color: #34d399;
+    font-size: 9px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .ai-ts { font-size: 10px; color: rgba(136,136,136,.5); margin-top: 16px; }
+
+  /* Score ring animation */
+  .score-ring-track { fill: none; stroke: rgba(99,102,241,.1); stroke-width: 8; }
+  .score-ring-fill  { fill: none; stroke-width: 8; stroke-linecap: round;
+                      transition: stroke-dashoffset .8s cubic-bezier(.4,0,.2,1), stroke .5s; }
+  .score-num { font-family: "SF Mono","Fira Code",monospace; font-size: 28px; font-weight: 700;
+               fill: #e0e7ff; text-anchor: middle; dominant-baseline: middle; }
 
   /* ── Section headers ── */
   .section-title {
@@ -770,6 +1036,24 @@ HTML = r"""<!DOCTYPE html>
     </div>
   </div>
 
+</div>
+
+<!-- AI Summary section -->
+<div class="ai-card" id="section-summary">
+  <div class="ai-orb"></div>
+  <div class="ai-header">
+    <div class="ai-title">
+      <span class="ai-title-icon">✦</span>
+      Intelligence Analysis
+    </div>
+    <button class="ai-refresh" onclick="fetchSummary()">↻ Refresh</button>
+  </div>
+  <div class="ai-body" id="summary-body">
+    <div style="grid-column:1/-1;color:var(--muted);font-size:12px;text-align:center;padding:20px 0">
+      Analysing system telemetry…
+    </div>
+  </div>
+  <div class="ai-ts" id="summary-ts"></div>
 </div>
 
 <!-- Ask Claude button -->
@@ -1166,6 +1450,64 @@ async function doClean(id, label) {
   } catch { showToast('Clean failed'); }
 }
 
+// ── AI Summary section ────────────────────────────────────────────────────────
+async function fetchSummary() {
+  try {
+    const r = await fetch('/api/summary');
+    if (!r.ok) throw new Error();
+    renderSummary(await r.json());
+  } catch {
+    document.getElementById('summary-body').innerHTML =
+      `<div style="grid-column:1/-1" class="vibe-tile" onclick="fetchSummary()">
+         <div class="vibe-emoji">🤙</div>
+         <div class="vibe-text">Vibe coding didn't vibe much</div>
+       </div>`;
+  }
+}
+
+function renderSummary(d) {
+  if (d.error) { fetchSummary(); return; }
+
+  const score = d.score ?? 0;
+  const circ  = 2 * Math.PI * 44;  // r=44
+  const offset = circ - (score / 100) * circ;
+  const ringColor = score >= 80 ? '#34d399' : score >= 55 ? '#fbbf24' : '#f87171';
+
+  const scoreSvg = `
+    <svg class="score-svg" viewBox="0 0 120 120">
+      <circle class="score-ring-track" cx="60" cy="60" r="44"/>
+      <circle class="score-ring-fill" cx="60" cy="60" r="44"
+        stroke="${ringColor}"
+        stroke-dasharray="${circ.toFixed(1)}"
+        stroke-dashoffset="${offset.toFixed(1)}"
+        transform="rotate(-90 60 60)"/>
+      <text class="score-num" x="60" y="60" style="fill:${ringColor}">${score}</text>
+    </svg>`;
+
+  const insights = (d.insights || []).map(i =>
+    `<li class="insight-item">${esc(i)}</li>`).join('');
+  const tips = (d.tips || []).map(t =>
+    `<li class="tip-item">${esc(t)}</li>`).join('');
+
+  document.getElementById('summary-body').innerHTML = `
+    <div class="score-wrap">
+      ${scoreSvg}
+      <div class="score-status">${esc(d.status)}</div>
+    </div>
+    <div>
+      <div class="ai-col-label">Observations</div>
+      <ul class="insight-list">${insights || '<li class="insight-item">Collecting data…</li>'}</ul>
+    </div>
+    <div>
+      <div class="ai-col-label">Recommended Actions</div>
+      ${tips ? `<ul class="tip-list">${tips}</ul>` :
+        `<p style="font-size:12px;color:var(--muted)">No immediate action needed.</p>`}
+    </div>`;
+
+  const ts = document.getElementById('summary-ts');
+  if (ts && d.ts) ts.textContent = `Analysis generated at ${d.ts}`;
+}
+
 // ── Ask Claude ────────────────────────────────────────────────────────────────
 async function askClaude() {
   try {
@@ -1205,9 +1547,11 @@ function esc(s) {
 fetchStats();
 fetchTabs();
 fetchGrime();
-setInterval(fetchStats, 3000);
-setInterval(fetchTabs,  30000);
-setInterval(fetchGrime, 60000);
+fetchSummary();
+setInterval(fetchStats,   3000);
+setInterval(fetchTabs,   30000);
+setInterval(fetchGrime,  60000);
+setInterval(fetchSummary,30000);
 
 // Status counter
 setInterval(() => {
@@ -1266,6 +1610,9 @@ class Handler(BaseHTTPRequestHandler):
 
         elif path == "/api/snapshot":
             self.send_json(api_snapshot())
+
+        elif path == "/api/summary":
+            self.send_json(api_summary())
 
         else:
             self.send_response(404)
