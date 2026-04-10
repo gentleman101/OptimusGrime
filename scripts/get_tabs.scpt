@@ -1,7 +1,26 @@
 -- OptimusGrime — get_tabs.scpt
 -- Lists open tabs from Chrome and Safari with inactivity scoring.
--- Output: JSON array of tab objects.
+-- Output: valid JSON array of tab objects.
 -- Usage: osascript get_tabs.scpt
+
+-- Escape a string for JSON double-quoted values
+on jsonEscape(s)
+    set s to s as string
+    set res to ""
+    repeat with c in characters of s
+        set c to c as string
+        if c = "\"" then
+            set res to res & "\\\""
+        else if c = "\\" then
+            set res to res & "\\\\"
+        else if c = "/" then
+            set res to res & "/"
+        else
+            set res to res & c
+        end if
+    end repeat
+    return res
+end jsonEscape
 
 on run
     set tabList to {}
@@ -22,9 +41,9 @@ on run
                     set tabCount to count of tabs of window w
                     repeat with t from 1 to tabCount
                         set theTab to tab t of window w
-                        set tabURL to URL of theTab
-                        set tabTitle to title of theTab
-                        set tabEntry to "{\"browser\":\"Chrome\",\"title\":" & quoted form of tabTitle & ",\"url\":" & quoted form of tabURL & ",\"window\":" & w & ",\"index\":" & t & "}"
+                        set tabURL to my jsonEscape(URL of theTab)
+                        set tabTitle to my jsonEscape(title of theTab)
+                        set tabEntry to "{\"browser\":\"Chrome\",\"title\":\"" & tabTitle & "\",\"url\":\"" & tabURL & "\",\"window\":" & w & ",\"index\":" & t & "}"
                         set end of tabList to tabEntry
                     end repeat
                 end repeat
@@ -50,9 +69,10 @@ on run
                         repeat with t from 1 to tabCount
                             set theTab to tab t of window w
                             set tabURL to URL of theTab
-                            set tabTitle to name of theTab
                             if tabURL is not missing value then
-                                set tabEntry to "{\"browser\":\"Safari\",\"title\":" & quoted form of tabTitle & ",\"url\":" & quoted form of tabURL & ",\"window\":" & w & ",\"index\":" & t & "}"
+                                set tabURL to my jsonEscape(tabURL)
+                                set tabTitle to my jsonEscape(name of theTab)
+                                set tabEntry to "{\"browser\":\"Safari\",\"title\":\"" & tabTitle & "\",\"url\":\"" & tabURL & "\",\"window\":" & w & ",\"index\":" & t & "}"
                                 set end of tabList to tabEntry
                             end if
                         end repeat
