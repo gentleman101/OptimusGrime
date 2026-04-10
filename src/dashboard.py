@@ -124,17 +124,49 @@ def score_tab(tab: dict, last_visits: dict) -> dict:
     return tab
 
 
+def check_automation_permission() -> str:
+    """
+    Returns 'granted', 'denied', or 'unknown'.
+    Runs a harmless AppleScript that requires Automation permission.
+    Error -1743 = not authorised; error -600 = app not running (permission exists but app closed).
+    """
+    test = 'tell application "System Events" to return name of first process whose frontmost is true'
+    try:
+        r = subprocess.run(
+            ["osascript", "-e", test],
+            capture_output=True, text=True, timeout=5
+        )
+        stderr = r.stderr.lower()
+        if "-1743" in stderr or "not authorized" in stderr or "not allowed" in stderr:
+            return "denied"
+        return "granted"
+    except Exception:
+        return "unknown"
+
+
 def get_tabs():
-    """Get tabs from running browsers, scored for inactivity."""
+    """Get tabs from running browsers, scored for inactivity.
+    Returns list of tab dicts, or {"permission": "denied"} if Automation is blocked.
+    """
     script = Path(__file__).parent.parent / "scripts" / "get_tabs.scpt"
     try:
         r = subprocess.run(
             ["osascript", str(script)],
             capture_output=True, text=True, timeout=10
         )
+        stderr = r.stderr.lower()
+
+        # Detect Automation permission denied (error -1743)
+        if "-1743" in stderr or "not authorized" in stderr or "not allowed" in stderr:
+            return {"permission": "denied"}
+
         raw = r.stdout.strip()
         if not raw:
+            # Check if permission is the silent cause
+            if check_automation_permission() == "denied":
+                return {"permission": "denied"}
             return []
+
         tabs = json.loads(raw)
     except Exception:
         return []
@@ -888,10 +920,38 @@ async function fetchTabs() {
 
 function renderTabs(tabs) {
   const el = document.getElementById('tabs-content');
+
+  // Permission denied — show step-by-step fix card
+  if (tabs && tabs.permission === 'denied') {
+    el.innerHTML = `
+      <div style="padding:4px 0">
+        <div style="font-size:13px;font-weight:600;margin-bottom:10px;color:var(--amber)">
+          ⚠ Automation Permission Required
+        </div>
+        <div style="font-size:12px;color:var(--muted);line-height:1.7;margin-bottom:14px">
+          macOS is blocking Safari/browser access.<br>
+          Grant permission in <strong style="color:var(--text)">System Settings</strong>:
+        </div>
+        <ol style="font-size:12px;color:var(--muted);padding-left:18px;line-height:2">
+          <li>Open <strong style="color:var(--text)">System Settings</strong></li>
+          <li>Go to <strong style="color:var(--text)">Privacy &amp; Security → Automation</strong></li>
+          <li>Find <strong style="color:var(--text)">Terminal</strong> (or Python) in the list</li>
+          <li>Enable the toggle next to <strong style="color:var(--text)">Safari</strong></li>
+        </ol>
+        <button class="btn btn-muted" style="margin-top:14px;font-size:12px" onclick="openSystemSettings()">
+          Open System Settings
+        </button>
+        <button class="btn btn-muted" style="margin-top:14px;margin-left:8px;font-size:12px" onclick="retrySection('tabs')">
+          ↻ Retry
+        </button>
+      </div>`;
+    return;
+  }
+
   if (!tabs || tabs.length === 0) {
     el.innerHTML = `<div style="color:var(--muted);font-size:12px;padding:12px 0;text-align:center">
       <div style="font-size:20px;margin-bottom:6px">🌐</div>No browser tabs found<br>
-      <span style="font-size:11px">(Chrome or Safari not running, or automation permission needed)</span></div>`;
+      <span style="font-size:11px">(Chrome or Safari not running)</span></div>`;
     return;
   }
 
@@ -1094,6 +1154,12 @@ function showToast(msg) {
   _toastTimer = setTimeout(() => t.classList.remove('show'), 3000);
 }
 
+// ── System Settings shortcut ─────────────────────────────────────────────────
+function openSystemSettings() {
+  fetch('/api/open-settings', {method:'POST'}).catch(()=>{});
+  showToast('Opening System Settings…');
+}
+
 // ── Escape helper ─────────────────────────────────────────────────────────────
 function esc(s) {
   if (!s) return '';
@@ -1194,6 +1260,13 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/clean":
             cat_id = data.get("cat_id", "")
             self.send_json(api_clean(cat_id))
+
+        elif path == "/api/open-settings":
+            subprocess.Popen([
+                "open",
+                "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation"
+            ])
+            self.send_json({"ok": True})
 
         else:
             self.send_response(404)
