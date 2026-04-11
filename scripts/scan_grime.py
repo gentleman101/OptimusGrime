@@ -80,7 +80,7 @@ def dir_size_bytes(path: Path) -> int:
     try:
         for entry in path.rglob("*"):
             try:
-                if entry.is_file(follow_symlinks=False):
+                if entry.is_file() and not entry.is_symlink():
                     total += entry.stat().st_size
             except (PermissionError, OSError):
                 pass
