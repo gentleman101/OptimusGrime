@@ -38,9 +38,9 @@ on run
             tell application "Google Chrome"
                 set winCount to count of windows
                 repeat with w from 1 to winCount
-                    set tabCount to count of tabs of window w
+                    set tabCount to count of (tabs of window w)
                     repeat with t from 1 to tabCount
-                        set theTab to tab t of window w
+                        set theTab to item t of (tabs of window w)
                         set tabURL to my jsonEscape(URL of theTab)
                         set tabTitle to my jsonEscape(title of theTab)
                         set tabEntry to "{\"browser\":\"Chrome\",\"title\":\"" & tabTitle & "\",\"url\":\"" & tabURL & "\",\"window\":" & w & ",\"index\":" & t & "}"
