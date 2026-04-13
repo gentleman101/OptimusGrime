@@ -24,9 +24,11 @@ from urllib.parse import urlparse, parse_qs
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 import health_check as hc
 import scan_grime as sg
+import get_tabs as gt
 
-HOME = Path.home()
-PORT = 7777
+HOME     = Path.home()
+PORT     = 7777
+PLATFORM = sys.platform   # 'darwin' or 'win32'
 
 # ── Tab intelligence ──────────────────────────────────────────────────────────
 
@@ -40,11 +42,20 @@ GENERIC_TITLES = {"new tab", "untitled", "blank page", ""}
 
 
 def chrome_history_path():
-    candidates = [
-        HOME / "Library/Application Support/Google/Chrome/Default/History",
-        HOME / "Library/Application Support/Chromium/Default/History",
-        HOME / "Library/Application Support/Google/Chrome/Profile 1/History",
-    ]
+    if PLATFORM == "darwin":
+        candidates = [
+            HOME / "Library/Application Support/Google/Chrome/Default/History",
+            HOME / "Library/Application Support/Chromium/Default/History",
+            HOME / "Library/Application Support/Google/Chrome/Profile 1/History",
+        ]
+    elif PLATFORM == "win32":
+        local = Path(os.environ.get("LOCALAPPDATA", ""))
+        candidates = [
+            local / "Google/Chrome/User Data/Default/History",
+            local / "Google/Chrome/User Data/Profile 1/History",
+        ]
+    else:
+        return None
     for p in candidates:
         if p.exists():
             return p
@@ -125,11 +136,9 @@ def score_tab(tab: dict, last_visits: dict) -> dict:
 
 
 def check_automation_permission() -> str:
-    """
-    Returns 'granted', 'denied', or 'unknown'.
-    Runs a harmless AppleScript that requires Automation permission.
-    Error -1743 = not authorised; error -600 = app not running (permission exists but app closed).
-    """
+    """Returns 'granted', 'denied', 'unknown', or 'not_applicable' (Windows)."""
+    if PLATFORM != "darwin":
+        return "not_applicable"
     test = 'tell application "System Events" to return name of first process whose frontmost is true'
     try:
         r = subprocess.run(
@@ -146,36 +155,31 @@ def check_automation_permission() -> str:
 
 def get_tabs():
     """Get tabs from running browsers, scored for inactivity.
-    Returns list of tab dicts, or {"permission": "denied"} if Automation is blocked.
+    - macOS: live Safari + Chrome tabs via get_tabs.scpt
+    - Windows: Chrome History (recent URLs) via get_tabs.py
     """
-    script = Path(__file__).parent.parent / "scripts" / "get_tabs.scpt"
     try:
-        r = subprocess.run(
-            ["osascript", str(script)],
-            capture_output=True, text=True, timeout=10
-        )
-        stderr = r.stderr.lower()
-
-        # Detect Automation permission denied (error -1743)
-        if "-1743" in stderr or "not authorized" in stderr or "not allowed" in stderr:
-            return {"permission": "denied"}
-
-        raw = r.stdout.strip()
-        if not raw:
-            # Check if permission is the silent cause
-            if check_automation_permission() == "denied":
-                return {"permission": "denied"}
-            return []
-
-        tabs = json.loads(raw)
+        raw = gt.get_tabs()
     except Exception:
         return []
 
-    # Enrich Chrome tabs with history
-    chrome_urls = [t["url"] for t in tabs if t.get("browser") == "Chrome"]
-    last_visits = get_chrome_last_visits(chrome_urls) if chrome_urls else {}
+    # Windows history mode — score and return as-is
+    if isinstance(raw, dict) and raw.get("windows_mode"):
+        history = raw.get("history", [])
+        chrome_urls = [t["url"] for t in history]
+        last_visits = get_chrome_last_visits(chrome_urls) if chrome_urls else {}
+        return {"windows_mode": True, "history": [score_tab(t, last_visits) for t in history]}
 
-    return [score_tab(t, last_visits) for t in tabs]
+    # Permission denied (macOS)
+    if isinstance(raw, dict) and raw.get("permission") == "denied":
+        return {"permission": "denied"}
+
+    # macOS live tabs
+    if not isinstance(raw, list):
+        return []
+    chrome_urls = [t["url"] for t in raw if t.get("browser") == "Chrome"]
+    last_visits = get_chrome_last_visits(chrome_urls) if chrome_urls else {}
+    return [score_tab(t, last_visits) for t in raw]
 
 
 # ── Process hog detection ────────────────────────────────────────────────────
@@ -352,7 +356,8 @@ def build_ai_summary(stats, tabs, grime):
 
     # Disk space insight
     if disk_pct > 85:
-        insights.append(f"Disk at {disk_pct}% capacity — critically low, macOS needs 10% free to function well")
+        os_name = "macOS" if PLATFORM == "darwin" else "Windows"
+        insights.append(f"Disk at {disk_pct}% capacity — critically low, {os_name} needs 10% free to function well")
         tips.append("Run Smart Cleanup immediately to free disk space")
     elif disk_pct > 70:
         insights.append(f"Disk at {disk_pct}% — start planning cleanup before it impacts performance")
@@ -432,11 +437,15 @@ def api_summary():
 
 def api_kill(pid: int):
     try:
-        os.kill(pid, 15)  # SIGTERM
+        os.kill(pid, 15)  # SIGTERM (maps to TerminateProcess on Windows)
         time.sleep(0.5)
         try:
             os.kill(pid, 0)   # check still alive
-            os.kill(pid, 9)   # SIGKILL if needed
+            if PLATFORM == "win32":
+                subprocess.run(["taskkill", "/PID", str(pid), "/F"],
+                               capture_output=True, timeout=5)
+            else:
+                os.kill(pid, 9)   # SIGKILL
         except ProcessLookupError:
             pass
         return {"ok": True, "pid": pid}
@@ -445,7 +454,9 @@ def api_kill(pid: int):
 
 
 def api_close_tabs(browser: str):
-    """Close all suggested tabs in browser via AppleScript."""
+    """Close suggested tabs in browser. macOS only (AppleScript)."""
+    if PLATFORM == "win32":
+        return {"ok": False, "error": "Tab closing is not available on Windows"}
     try:
         tabs = get_tabs()
         to_close = [t for t in tabs if t.get("suggest_close") and t.get("browser") == browser]
@@ -922,7 +933,7 @@ HTML = r"""<!DOCTYPE html>
 <!-- Thermal alert -->
 <div class="alert-banner" id="thermal-alert">
   <span>⚠</span>
-  <span>Thermal throttling active — your Mac is slowing itself down to cool off</span>
+  <span>Thermal throttling active — system is slowing itself down to cool off</span>
 </div>
 
 <!-- Top 4 stat cards -->
@@ -1242,6 +1253,29 @@ async function fetchTabs() {
 
 function renderTabs(tabs) {
   const el = document.getElementById('tabs-content');
+
+  // Windows history mode
+  if (tabs && tabs.windows_mode) {
+    const history = tabs.history || [];
+    if (history.length === 0) {
+      el.innerHTML = `<div style="color:var(--muted);font-size:12px;padding:12px 0;text-align:center">
+        <div style="font-size:20px;margin-bottom:6px">🌐</div>No Chrome history found</div>`;
+      return;
+    }
+    const rows = history.slice(0, 8).map(t => `
+      <div class="tab-row">
+        <div class="tab-browser">Chrome</div>
+        <div class="tab-title">${esc(t.title || t.url)}</div>
+        <span class="tab-tag">${t.hours_ago < 1 ? 'recent' : t.hours_ago.toFixed(0) + 'h ago'}</span>
+      </div>`).join('');
+    el.innerHTML = `
+      <div class="tab-summary">
+        <span class="pill">Chrome history</span>
+        <span class="pill" style="color:var(--muted)">Live tabs unavailable on Windows</span>
+      </div>
+      ${rows}`;
+    return;
+  }
 
   // Permission denied — show step-by-step fix card
   if (tabs && tabs.permission === 'denied') {
@@ -1647,10 +1681,15 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(api_clean(cat_id))
 
         elif path == "/api/open-settings":
-            subprocess.Popen([
-                "open",
-                "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation"
-            ])
+            if PLATFORM == "win32":
+                subprocess.Popen(
+                    ["start", "ms-settings:privacy-broadfilesystemaccess"], shell=True
+                )
+            else:
+                subprocess.Popen([
+                    "open",
+                    "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation"
+                ])
             self.send_json({"ok": True})
 
         else:
@@ -1683,7 +1722,12 @@ def main():
         print("  Warning: no auth — use on a trusted network only.")
     print("Press Ctrl-C to stop.")
     if not no_open:
-        subprocess.Popen(["open", local_url])
+        if PLATFORM == "win32":
+            os.startfile(local_url)
+        elif PLATFORM == "darwin":
+            subprocess.Popen(["open", local_url])
+        else:
+            subprocess.Popen(["xdg-open", local_url])
     try:
         server.serve_forever()
     except KeyboardInterrupt:

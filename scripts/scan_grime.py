@@ -16,59 +16,133 @@ import subprocess
 import sys
 from pathlib import Path
 
-HOME = Path.home()
+HOME     = Path.home()
+PLATFORM = sys.platform   # 'darwin' or 'win32'
 
-# ── Safe categories ──────────────────────────────────────────────────────────
 
-CATEGORIES = [
-    {
-        "id":       "app_caches",
-        "label":    "App Caches",
-        "reason":   "Apps regenerate these automatically",
-        "path":     HOME / "Library" / "Caches",
-        "mode":     "dir_contents",   # scan subdirs, exclude com.apple.*
-        "age_days": 0,   # show all non-Apple caches; age check only applied at deletion
-        "safe":     True,
-    },
-    {
-        "id":       "xcode_derived",
-        "label":    "Xcode Build Artifacts",
-        "reason":   "Fully regenerated on next Xcode build",
-        "path":     HOME / "Library" / "Developer" / "Xcode" / "DerivedData",
-        "mode":     "dir_contents",
-        "age_days": 0,   # any age is safe
-        "safe":     True,
-    },
-    {
-        "id":       "system_tmp",
-        "label":    "System Temp Files",
-        "reason":   "Cleared on reboot; stragglers from crashed apps",
-        "path":     Path("/private/tmp"),
-        "mode":     "dir_contents",
-        "age_days": 7,
-        "safe":     True,
-    },
-    {
-        "id":       "trash",
-        "label":    "Trash",
-        "reason":   "Files you already deleted",
-        "path":     HOME / ".Trash",
-        "mode":     "dir_total",
-        "age_days": 0,
-        "safe":     True,
-    },
-    {
-        "id":       "broken_agents",
-        "label":    "Broken Login Items",
-        "reason":   "LaunchAgent plists pointing to apps that no longer exist",
-        "path":     HOME / "Library" / "LaunchAgents",
-        "mode":     "broken_plists",
-        "age_days": 0,
-        "safe":     True,
-    },
-]
+def run_ps(expression: str, timeout=15) -> str:
+    """Run a PowerShell expression and return stdout. Windows only."""
+    try:
+        r = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", expression],
+            capture_output=True, text=True, timeout=timeout
+        )
+        return r.stdout
+    except Exception:
+        return ""
 
-# Prefixes that should never be touched
+
+def _win_path(env_var: str, *parts) -> Path:
+    """Resolve a Windows env-var path, e.g. _win_path('LOCALAPPDATA', 'Temp')."""
+    base = os.environ.get(env_var, "")
+    if not base:
+        return Path("C:/nonexistent_optimusgrime_placeholder")
+    return Path(base).joinpath(*parts)
+
+
+# ── Safe categories (platform-aware) ─────────────────────────────────────────
+
+if PLATFORM == "darwin":
+    CATEGORIES = [
+        {
+            "id":       "app_caches",
+            "label":    "App Caches",
+            "reason":   "Apps regenerate these automatically",
+            "path":     HOME / "Library" / "Caches",
+            "mode":     "dir_contents",
+            "age_days": 0,
+            "safe":     True,
+        },
+        {
+            "id":       "xcode_derived",
+            "label":    "Xcode Build Artifacts",
+            "reason":   "Fully regenerated on next Xcode build",
+            "path":     HOME / "Library" / "Developer" / "Xcode" / "DerivedData",
+            "mode":     "dir_contents",
+            "age_days": 0,
+            "safe":     True,
+        },
+        {
+            "id":       "system_tmp",
+            "label":    "System Temp Files",
+            "reason":   "Cleared on reboot; stragglers from crashed apps",
+            "path":     Path("/private/tmp"),
+            "mode":     "dir_contents",
+            "age_days": 7,
+            "safe":     True,
+        },
+        {
+            "id":       "trash",
+            "label":    "Trash",
+            "reason":   "Files you already deleted",
+            "path":     HOME / ".Trash",
+            "mode":     "dir_total",
+            "age_days": 0,
+            "safe":     True,
+        },
+        {
+            "id":       "broken_agents",
+            "label":    "Broken Login Items",
+            "reason":   "LaunchAgent plists pointing to apps that no longer exist",
+            "path":     HOME / "Library" / "LaunchAgents",
+            "mode":     "broken_plists",
+            "age_days": 0,
+            "safe":     True,
+        },
+    ]
+elif PLATFORM == "win32":
+    CATEGORIES = [
+        {
+            "id":       "app_caches",
+            "label":    "User Temp Files",
+            "reason":   "Windows temp files; safe to clear",
+            "path":     _win_path("LOCALAPPDATA", "Temp"),
+            "mode":     "dir_contents",
+            "age_days": 3,
+            "safe":     True,
+        },
+        {
+            "id":       "xcode_derived",
+            "label":    "JetBrains Caches",
+            "reason":   "IDE build caches; regenerated on next project open",
+            "path":     _win_path("LOCALAPPDATA", "JetBrains"),
+            "mode":     "dir_contents",
+            "age_days": 0,
+            "safe":     True,
+        },
+        {
+            "id":       "system_tmp",
+            "label":    "System Temp Files",
+            "reason":   "Stragglers from crashed or outdated apps",
+            "path":     Path("C:/Windows/Temp"),
+            "mode":     "dir_contents",
+            "age_days": 7,
+            "safe":     True,
+        },
+        {
+            "id":       "trash",
+            "label":    "Recycle Bin",
+            "reason":   "Files you already deleted",
+            "path":     Path("C:/$Recycle.Bin"),
+            "mode":     "recycle_bin",
+            "age_days": 0,
+            "safe":     True,
+        },
+        {
+            "id":       "broken_agents",
+            "label":    "Startup Folder Items",
+            "reason":   "Programs set to run at Windows startup",
+            "path":     _win_path("APPDATA", "Microsoft", "Windows",
+                                  "Start Menu", "Programs", "Startup"),
+            "mode":     "dir_contents",
+            "age_days": 0,
+            "safe":     False,   # info only — don't auto-clean startup items
+        },
+    ]
+else:
+    CATEGORIES = []
+
+# Prefixes that should never be touched (macOS)
 SYSTEM_PREFIXES = ("com.apple.", "com.AppleInternal.", "com.crashlytics.")
 
 
@@ -99,6 +173,10 @@ def human(n: int) -> str:
 
 def is_open(path: Path) -> bool:
     """True if any file under path is held open by a process."""
+    if PLATFORM == "win32":
+        # lsof doesn't exist on Windows. Skip the check — Windows raises
+        # PermissionError on deletion if a file is locked, caught in delete_category.
+        return False
     try:
         r = subprocess.run(
             ["lsof", "+D", str(path)],
@@ -169,7 +247,9 @@ def scan_dir_total(cat: dict) -> dict:
     try:
         entries = [e for e in base.iterdir() if not e.name.startswith(".")]
     except PermissionError:
-        # Fall back to `du -sh` for directories we can't iterate (e.g. ~/.Trash)
+        if PLATFORM == "win32":
+            return {"bytes": 0, "count": 0, "items": [], "accessible": False}
+        # macOS: fall back to du -sk
         try:
             r = subprocess.run(
                 ["du", "-sk", str(base)],
@@ -227,6 +307,20 @@ def scan_broken_plists(cat: dict) -> dict:
     return {"bytes": total, "count": len(broken), "items": broken, "accessible": True}
 
 
+def scan_recycle_bin(cat: dict) -> dict:
+    """Windows Recycle Bin size via PowerShell Shell.Application COM."""
+    out = run_ps(
+        "(New-Object -ComObject Shell.Application).NameSpace(0xA).Items() | "
+        "Measure-Object -Property Size -Sum | "
+        "Select-Object -ExpandProperty Sum"
+    )
+    try:
+        total = int(float(out.strip() or "0"))
+    except (ValueError, TypeError):
+        total = 0
+    return {"bytes": total, "count": -1, "items": [], "accessible": True}
+
+
 def scan_category(cat: dict) -> dict:
     mode = cat["mode"]
     if mode == "dir_contents":
@@ -235,6 +329,8 @@ def scan_category(cat: dict) -> dict:
         result = scan_dir_total(cat)
     elif mode == "broken_plists":
         result = scan_broken_plists(cat)
+    elif mode == "recycle_bin":
+        result = scan_recycle_bin(cat)
     else:
         result = {"bytes": 0, "count": 0, "items": [], "accessible": False}
 
@@ -265,6 +361,24 @@ def delete_category(cat_id: str, results: list, dry_run=False) -> int:
     cat_result = next((r for r in results if r["id"] == cat_id), None)
     if not cat_result:
         return 0
+
+    # Windows Recycle Bin — delegate to PowerShell Clear-RecycleBin
+    if cat_id == "trash" and PLATFORM == "win32":
+        freed = cat_result.get("bytes", 0)
+        if not dry_run:
+            try:
+                subprocess.run(
+                    ["powershell", "-NoProfile", "-NonInteractive", "-Command",
+                     "Clear-RecycleBin -Force -ErrorAction SilentlyContinue"],
+                    timeout=30, capture_output=True
+                )
+                print(f"  emptied Recycle Bin ({human(freed)})")
+            except Exception as e:
+                print(f"  error emptying Recycle Bin: {e}")
+                return 0
+        else:
+            print(f"  would empty Recycle Bin ({human(freed)})")
+        return freed
 
     freed = 0
     for item in cat_result["items"]:
